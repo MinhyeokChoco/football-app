@@ -2,16 +2,19 @@
 export type ShareResult = 'shared' | 'copied' | 'cancelled' | 'failed';
 
 export async function shareOrCopy(data: { title: string; text: string; url: string }): Promise<ShareResult> {
+  // url 을 따로 넘기면 iOS 공유 시트의 "복사"가 링크를 문구 맨 위에 붙인다.
+  // 문구 끝에 직접 넣어서 어디로 보내든 "문구 → 링크" 순서가 되게 한다.
+  const message = `${data.text}\n${data.url}`;
   if (navigator.share) {
     try {
-      await navigator.share(data);
+      await navigator.share({ title: data.title, text: message });
       return 'shared';
     } catch (err) {
       // 사용자가 공유 시트를 닫은 경우. 복사로 넘어가지 않는다.
       if ((err as Error).name === 'AbortError') return 'cancelled';
     }
   }
-  return copyText(`${data.text}\n${data.url}`);
+  return copyText(message);
 }
 
 export async function copyText(text: string): Promise<ShareResult> {
