@@ -91,7 +91,6 @@ export class Home {
     const m = this.made();
     if (!m) return;
     const result = await shareOrCopy({
-      title: m.title,
       text: `⚽ ${m.title}\n${m.when} · ${m.place}\n올 사람 눌러줘!`,
       url: this.friendUrl(),
     });

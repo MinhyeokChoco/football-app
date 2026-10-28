@@ -382,7 +382,6 @@ export class EventView {
       ? `지금 ${this.going().length}명, 인원 충족!`
       : `지금 ${this.going().length}/${e.minPeople}명, ${this.shortBy()}명 더 필요해`;
     const result = await shareOrCopy({
-      title: e.title,
       text: `⚽ ${e.title}\n${this.whenText()} · ${e.place}\n${status}`,
       url: eventUrl(e.id),
     });
