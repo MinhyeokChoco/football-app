@@ -1,0 +1,224 @@
+@if (missing()) {
+  <div class="empty">
+    <p>모임을 찾을 수 없어.<br />링크가 맞는지 확인해줘.</p>
+    <a class="btn" routerLink="/">처음으로</a>
+  </div>
+} @else if (event(); as e) {
+  <div class="wrap">
+    <nav class="top">
+      <a routerLink="/" class="back">‹ 모임 만들기</a>
+      @if (isHost()) {
+        <span class="host-tag">주최자</span>
+      }
+    </nav>
+
+    <!-- 경기 카드: 잔디 위 스코어보드 -->
+    <section class="board" aria-label="경기 정보">
+      @if (isHost()) {
+        <button type="button" class="edit-link" (click)="openEdit()">경기 정보 수정</button>
+      }
+      <p class="label">{{ dday() }}</p>
+      <h1>{{ e.title }}</h1>
+      <p class="meta">
+        <b>{{ whenText() }}</b>
+        <span>장소 · {{ e.place }}</span>
+      </p>
+      <div class="count" aria-live="polite">
+        <span class="big">{{ shownCount() }}</span>
+        <span class="of">/ {{ e.minPeople }}명 ·
+          {{ isFull() ? '인원 충족!' : shortBy() + '명 더 필요' }}</span>
+      </div>
+      <div class="bar" role="img"
+           [attr.aria-label]="going().length + '명 참석, 최소 ' + e.minPeople + '명 필요'">
+        <i [style.width.%]="barPct()"></i>
+      </div>
+      <button type="button" class="share" (click)="share()">단톡방에 공유하기</button>
+      @if (shareNote()) {
+        <p class="share-note" aria-live="polite">{{ shareNote() }}</p>
+      }
+    </section>
+
+    <!-- 내 답변 -->
+    <section class="panel" aria-labelledby="myH">
+      <h2 id="myH">너 올 거야?</h2>
+      <div class="field">
+        <label class="label" for="name">이름</label>
+        <input id="name" type="text" maxlength="12" placeholder="예: 민혁" autocomplete="nickname"
+               [value]="name()" (input)="onNameInput($any($event.target).value)"
+               [class.bad]="hintIsError()" />
+      </div>
+      <div class="choices" role="group" aria-label="참석 여부">
+        <button type="button" class="choice in" [attr.aria-pressed]="myStatus() === 'YES'"
+                (click)="press('YES')" [disabled]="busy()">
+          참석<small>무조건 간다</small>
+        </button>
+        <button type="button" class="choice out" [attr.aria-pressed]="myStatus() === 'NO'"
+                (click)="press('NO')" [disabled]="busy()">
+          불참<small>이번엔 패스</small>
+        </button>
+      </div>
+      <p class="hint" [class.err]="hintIsError()" aria-live="polite">{{ hint() }}</p>
+    </section>
+
+    <!-- 명단 -->
+    <section class="panel" aria-labelledby="listH">
+      <h2 id="listH">참여 명단</h2>
+      @for (g of [{ key: 'in', label: '참석', list: going() }, { key: 'out', label: '불참', list: notGoing() }]; track g.key) {
+        <div class="group">
+          <h3><span class="dot" [class]="g.key"></span>{{ g.label }} {{ g.list.length }}</h3>
+          @if (g.list.length) {
+            <ul>
+              @for (a of g.list; track a.name) {
+                <li class="chip" [class.me]="isMine(a)">
+                  {{ a.name }}
+                  @if (canRemove(a)) {
+                    <button type="button" class="x" (click)="remove(a)" [disabled]="busy()"
+                            [attr.aria-label]="isMine(a) ? a.name + ' 응답 취소' : a.name + ' 삭제'">×</button>
+                  }
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="empty-line">{{ g.key === 'in' ? '아직 아무도 없어. 첫 번째로 손 들어줘!' : '없음' }}</p>
+          }
+        </div>
+      }
+    </section>
+
+    <!-- 팀 나누기 -->
+    <section class="panel" aria-labelledby="teamH">
+      <div class="row">
+        <h2 id="teamH">팀 나누기</h2>
+        <span class="stamp">{{ teamStamp() }}</span>
+      </div>
+      <p class="hint" [class.err]="teamsStale()">
+        @if (teamsStale()) {
+          명단이 바뀌었어. {{ teamsPublished() && !isHost() ? '주최자가 다시 섞어줄 거야.' : '다시 섞어줘.' }}
+        } @else if (teamsPublished()) {
+          주최자가 나눈 팀이야. 모두에게 똑같이 보여.
+        } @else if (going().length < 2) {
+          참석자가 2명 이상이면 나눌 수 있어.
+        } @else if (isHost()) {
+          섞으면 모두의 화면에 같은 팀이 보여.
+        } @else {
+          내 화면에서만 섞어보는 거야. 주최자가 섞으면 그 팀이 모두에게 보여.
+        }
+      </p>
+      @if (teams()) {
+        <div class="pitch">
+          @for (side of teamSides(); track side.cls) {
+            <div class="side">
+              <h4><span class="bib" [class]="side.cls"></span>{{ side.nm }} {{ side.arr.length }}</h4>
+              <ol>
+                @for (n of side.arr; track n) {
+                  <li>{{ n }}</li>
+                }
+              </ol>
+            </div>
+          }
+        </div>
+      }
+      @if (isHost() || !teamsPublished()) {
+        <div class="row start">
+          <button type="button" class="btn" (click)="splitTeams()" [disabled]="busy() || going().length < 2">
+            {{ teams() ? '다시 섞기' : '팀 나누기' }}
+          </button>
+          @if (teams()) {
+            <button type="button" class="btn ghost" (click)="clearTeams()" [disabled]="busy()">팀 지우기</button>
+          }
+        </div>
+      }
+    </section>
+
+    <!-- 기록: 접었다 펴기 -->
+    @if (activities().length) {
+      <section class="panel log">
+        <button type="button" class="ltoggle" (click)="logOpen.set(!logOpen())"
+                [attr.aria-expanded]="logOpen()">
+          <span class="label">기록 {{ activities().length }}</span>
+          @if (!logOpen()) {
+            <span class="peek">{{ activities()[0].text }}</span>
+          }
+          <span class="caret" [class.up]="logOpen()" aria-hidden="true">⌄</span>
+        </button>
+        @if (logOpen()) {
+          <ul>
+            @for (act of activities(); track act.id) {
+              <li><span>{{ act.text }}</span><time>{{ act.ago }}</time></li>
+            }
+          </ul>
+        }
+      </section>
+    }
+
+    @if (isHost()) {
+      <button type="button" class="quiet host-link" (click)="copyHostLink()">
+        다른 기기에서 주최하려면 · 주최자 링크 복사
+      </button>
+    }
+  </div>
+
+  @if (nudge(); as n) {
+    <div class="veil" (click)="nudge.set(null)">
+      <div class="dialog" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+        <svg viewBox="0 0 100 100" width="96" height="96" class="ball" role="img">
+          <title>시무룩한 축구공</title>
+          <circle cx="50" cy="52" r="34" fill="#fff" stroke="#17221a" stroke-width="2.5" />
+          <path d="M50 34 L64 44 L59 61 L41 61 L36 44 Z" fill="#17221a" />
+          <circle cx="40" cy="47" r="3.6" fill="#fff" />
+          <circle cx="60" cy="47" r="3.6" fill="#fff" />
+          <path d="M40 74 Q50 66 60 74" stroke="#17221a" stroke-width="2.5" fill="none" stroke-linecap="round" />
+          <ellipse class="tear" cx="34" cy="56" rx="2.8" ry="4" fill="#3E7FB8" />
+        </svg>
+        <p class="dtitle">{{ n.title }}</p>
+        <p class="dsub">{{ n.sub }}</p>
+        <button type="button" class="btn go" (click)="changeMind()">역시 갈게</button>
+        <button type="button" class="quiet" (click)="confirmDecline()">응, 진짜 못 가</button>
+      </div>
+    </div>
+  }
+  @if (draft(); as d) {
+    <div class="veil" (click)="draft.set(null)">
+      <form class="dialog edit" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveEdit()"
+            role="dialog" aria-modal="true" aria-labelledby="editH">
+        <h2 id="editH">경기 정보</h2>
+        <div class="field">
+          <label class="label" for="fTitle">제목</label>
+          <input id="fTitle" maxlength="40" [value]="d.title"
+                 (input)="setDraft('title', $any($event.target).value)" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label class="label" for="fDate">날짜</label>
+            <input id="fDate" type="date" [value]="d.date"
+                   (input)="setDraft('date', $any($event.target).value)" />
+          </div>
+          <div class="field">
+            <label class="label" for="fTime">시간</label>
+            <input id="fTime" type="time" [value]="d.time"
+                   (input)="setDraft('time', $any($event.target).value)" />
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="fPlace">장소</label>
+          <input id="fPlace" maxlength="60" [value]="d.place"
+                 (input)="setDraft('place', $any($event.target).value)" />
+        </div>
+        <div class="field">
+          <label class="label" for="fMin">최소 인원</label>
+          <input id="fMin" type="number" inputmode="numeric" min="1" max="50" [value]="d.minPeople"
+                 (input)="setDraft('minPeople', $any($event.target).valueAsNumber)" />
+        </div>
+        @if (draftError()) {
+          <p class="hint err">{{ draftError() }}</p>
+        }
+        <div class="row start">
+          <button type="submit" class="btn" [disabled]="busy()">저장</button>
+          <button type="button" class="btn ghost" (click)="draft.set(null)">취소</button>
+        </div>
+      </form>
+    </div>
+  }
+} @else {
+  <p class="empty">불러오는 중…</p>
+}

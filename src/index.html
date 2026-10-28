@@ -1,13 +1,28 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>FootballApp</title>
-  <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
-</head>
-<body>
-  <app-root></app-root>
-</body>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>주고 들어가</title>
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#eef2ec" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1511" media="(prefers-color-scheme: dark)" />
+    <!-- iOS 홈 화면 앱 -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="주고 들어가" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="icons/favicon-64.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <!-- 단톡방 링크 미리보기. 모임마다 다른 내용은 서버가 있어야 해서 지금은 공통 문구 -->
+    <meta name="description" content="링크 눌러서 참석/불참만 알려줘. 인원 모이면 바로 팀 나누기까지." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="야 축구하자 ⚽" />
+    <meta property="og:description" content="링크 눌러서 참석/불참만 알려줘." />
+  </head>
+  <body>
+    <app-root></app-root>
+    <noscript>JavaScript를 켜야 쓸 수 있어.</noscript>
+  </body>
 </html>

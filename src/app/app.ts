@@ -1,5 +1,6 @@
-import { Component, signal } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { AppUpdates } from './core/app-updates';
 
 @Component({
   imports: [RouterOutlet],
@@ -8,5 +9,7 @@ import { RouterOutlet } from '@angular/router';
   templateUrl: './app.html',
 })
 export class App {
-  protected readonly title = signal('football-app');
+  constructor() {
+    inject(AppUpdates).start();
+  }
 }

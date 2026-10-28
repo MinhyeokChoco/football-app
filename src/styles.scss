@@ -1,1 +1,152 @@
-/* You can add global styles to this file, and also import other style files */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+@import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Mono:wght@500&display=swap');
+
+:root {
+  /* 잔디와 라인 마킹에서 가져온 색 */
+  --bg: #eef2ec;         /* 페이지 배경 */
+  --surface: #ffffff;    /* 카드 */
+  --fg: #17221a;         /* 순검정 대신 녹색이 섞인 먹색 */
+  --muted: #5d6b60;      /* 보조 텍스트 */
+  --line: #d5ddd4;       /* 경계선 */
+  --pitch: #1f6b3a;      /* 잔디 줄무늬 */
+  --pitch-2: #237541;
+  --chalk: #f4f7f2;      /* 잔디 위 글씨·라인 */
+  --accent: #e0b400;     /* 큰 숫자, 게이지 */
+  --in: #1f8a4c;         /* 참석 */
+  --out: #b4473a;        /* 불참, 오류 */
+  --team-a: #1f5fbf;
+  --team-b: #d0452f;
+
+  --display: 'Black Han Sans', 'Pretendard Variable', sans-serif;
+  --body: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+@mixin dark {
+  --bg: #0f1511; --surface: #18211b; --fg: #e6ede6; --muted: #98a69b; --line: #2b372e;
+  --pitch: #174f2c; --pitch-2: #1a5a32; --chalk: #e9f0e8; --accent: #f0c832;
+  --in: #4cc27c; --out: #e7766a; --team-a: #6a9ef0; --team-b: #f07a63;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) { @include dark; }
+}
+:root[data-theme='dark'] { @include dark; }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, input { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+// ── 두 화면이 같이 쓰는 모양 ─────────────────────────────
+
+h1, h2, h3, h4 {
+  font-family: var(--display);
+  font-weight: 400;
+  margin: 0;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+h2 { font-size: 1.25rem; }
+
+.label {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+.field {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+
+  input {
+    display: block; width: 100%; min-width: 0; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg);
+    font-size: 16px; /* iOS 확대 방지 */
+
+    &::placeholder { color: var(--muted); }
+
+    /* iOS Safari 의 날짜·시간 칸은 width 를 무시하고 제 고유 너비를 고집한다 */
+    &[type='date'], &[type='time'] {
+      -webkit-appearance: none; appearance: none;
+      min-height: 44px; text-align: left;
+    }
+    &::-webkit-date-and-time-value { text-align: left; }
+    &.bad { border-color: var(--out); animation: shake 0.32s; }
+  }
+}
+
+.field-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  /* 좁은 폰에서는 날짜·시간을 위아래로 */
+  @media (max-width: 380px) { grid-template-columns: 1fr; }
+}
+
+.hint {
+  margin: 0; font-size: 0.85rem; color: var(--muted);
+  &.err { color: var(--out); }
+  b { color: var(--out); font-weight: 600; }
+}
+
+.btn {
+  display: inline-block; text-align: center; text-decoration: none;
+  border: 0; border-radius: 10px; padding: 11px 16px;
+  font-weight: 700; cursor: pointer;
+  background: var(--fg); color: var(--bg);
+  transition: transform 0.1s ease;
+
+  &:active { transform: scale(0.97); }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &.go { height: 50px; background: var(--in); color: #fff; }
+  &.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+}
+
+.quiet {
+  border: 0; background: none; cursor: pointer;
+  font-size: 0.9rem; color: var(--muted);
+}
+
+.row {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  align-items: center; justify-content: space-between;
+  &.start { justify-content: flex-start; }
+}
+
+@keyframes pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+/* 움직임에 어지러움을 느끼는 사람을 위해 전부 끈다 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,169 @@
+rules_version = '2';
+
+// 서버가 없으니 예전 NestJS 가 하던 검사를 전부 여기서 한다.
+// 사용자는 모두 익명 로그인이고, uid 가 예전 attendee token / admin token 역할을 한다.
+//
+// events/{eventId}                    모임. 누구나 읽기, 주최자만 수정
+//   hosts/{uid}                       주최자 명단. 주최자 키를 아는 사람만 자기 uid 로 추가
+//   private/admin                     주최자 키. 주최자만 읽기
+//   attendees/{name}                  응답. 문서 id 가 이름이라 같은 이름은 하나뿐
+//   activities/{id}                   기록. 실제로 일어난 변경과 맞아야만 남길 수 있다
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function eventPath(eventId) {
+      return /databases/$(database)/documents/events/$(eventId);
+    }
+
+    function attendeePath(eventId, name) {
+      return /databases/$(database)/documents/events/$(eventId)/attendees/$(name);
+    }
+
+    function isHost(eventId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/events/$(eventId)/hosts/$(uid()));
+    }
+
+    function validText(v, max) {
+      return v is string && v.size() >= 1 && v.size() <= max && v == v.trim();
+    }
+
+    function validNames(list) {
+      return list is list && list.size() <= 50;
+    }
+
+    function validTeams(t) {
+      return t == null
+        || (t is map && t.keys().hasOnly(['a', 'b', 'at'])
+            && validNames(t.a) && validNames(t.b) && t.at == request.time);
+    }
+
+    // 팀은 바뀔 때만 검사한다. 이미 저장된 팀의 at 은 과거 시각이라 매번 검사하면 수정이 막힌다
+    function validEvent(d) {
+      return validText(d.title, 40)
+        && validText(d.place, 60)
+        && d.eventAt is timestamp
+        && d.minPeople is int && d.minPeople >= 1 && d.minPeople <= 50;
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+
+      // 주최자 키와 주최자 명단을 같은 batch 로 함께 만들어야 한다
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(
+             ['title', 'place', 'eventAt', 'minPeople', 'teams', 'createdBy', 'createdAt'])
+        && validEvent(request.resource.data)
+        && request.resource.data.teams == null
+        && request.resource.data.createdBy == uid()
+        && request.resource.data.createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/events/$(eventId)/hosts/$(uid()));
+
+      allow update: if isHost(eventId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['title', 'place', 'eventAt', 'minPeople', 'teams'])
+        && validEvent(request.resource.data)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['teams'])
+            || validTeams(request.resource.data.teams));
+
+      match /private/admin {
+        allow read: if isHost(eventId);
+        // 모임을 처음 만드는 batch 에서만. 이미 있는 모임에 키를 새로 심을 수 없다
+        allow create: if signedIn()
+          && !exists(eventPath(eventId))
+          && getAfter(eventPath(eventId)).data.createdBy == uid()
+          && request.resource.data.keys().hasOnly(['key'])
+          && request.resource.data.key is string
+          && request.resource.data.key.size() >= 20;
+      }
+
+      match /hosts/{hostUid} {
+        // 내가 주최자인지 확인하는 용도. 남의 기록은 볼 필요가 없다
+        allow get: if signedIn() && hostUid == uid();
+        // 주최자 링크(?key=)를 받은 다른 기기도 여기서 주최자가 된다
+        allow create: if signedIn()
+          && hostUid == uid()
+          && request.resource.data.keys().hasOnly(['key'])
+          && request.resource.data.key
+             == getAfter(/databases/$(database)/documents/events/$(eventId)/private/admin).data.key;
+      }
+
+      match /attendees/{name} {
+        allow read: if true;
+
+        // 같은 이름이 이미 있으면 create 가 아니라 update 가 되고, update 는 본인만 된다.
+        // 예전 "토큰이 있어야 이름을 바꿀 수 있다" 규칙이 이걸로 대신된다.
+        allow create: if signedIn()
+          && exists(eventPath(eventId))
+          && request.resource.data.keys().hasOnly(['name', 'status', 'uid', 'createdAt', 'updatedAt'])
+          && request.resource.data.name == name
+          && validText(name, 12)
+          && request.resource.data.status in ['YES', 'NO']
+          && request.resource.data.uid == uid()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+
+        allow update: if signedIn()
+          && resource.data.uid == uid()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.status in ['YES', 'NO']
+          && request.resource.data.updatedAt == request.time;
+
+        allow delete: if signedIn() && (resource.data.uid == uid() || isHost(eventId));
+      }
+
+      // 기록은 같은 batch 에서 일어난 실제 변경과 맞을 때만 쓸 수 있다.
+      // 그래서 "주최자가 장소를 바꿨어" 같은 가짜 기록을 아무나 남길 수 없다.
+      match /activities/{activityId} {
+        allow read: if true;
+
+        allow create: if signedIn()
+          && request.resource.data.by == uid()
+          && request.resource.data.at == request.time
+          && validActivity(eventId, request.resource.data);
+      }
+
+      function validActivity(eventId, a) {
+        return (
+            a.kind in ['join', 'change']
+            && a.keys().hasOnly(['kind', 'name', 'status', 'by', 'at'])
+            && a.name is string
+            && existsAfter(attendeePath(eventId, a.name))
+            && getAfter(attendeePath(eventId, a.name)).data.uid == uid()
+            && getAfter(attendeePath(eventId, a.name)).data.status == a.status
+          ) || (
+            a.kind == 'cancel'
+            && a.keys().hasOnly(['kind', 'name', 'by', 'at'])
+            && a.name is string
+            && exists(attendeePath(eventId, a.name))
+            && get(attendeePath(eventId, a.name)).data.uid == uid()
+            && !existsAfter(attendeePath(eventId, a.name))
+          ) || (
+            a.kind == 'remove'
+            && a.keys().hasOnly(['kind', 'name', 'by', 'at'])
+            && a.name is string
+            && isHost(eventId)
+            && exists(attendeePath(eventId, a.name))
+            && !existsAfter(attendeePath(eventId, a.name))
+          ) || (
+            a.kind == 'place'
+            && a.keys().hasOnly(['kind', 'place', 'by', 'at'])
+            && isHost(eventId)
+            && getAfter(eventPath(eventId)).data.place == a.place
+            && get(eventPath(eventId)).data.place != a.place
+          ) || (
+            a.kind in ['time', 'teams']
+            && a.keys().hasOnly(['kind', 'by', 'at'])
+            && isHost(eventId)
+          );
+      }
+    }
+  }
+}

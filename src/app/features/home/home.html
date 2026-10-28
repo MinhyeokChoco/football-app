@@ -1,0 +1,98 @@
+<main>
+  <header>
+    <h1>주고 들어가</h1>
+    <p>모임 만들고 링크를 단톡방에 던지면 끝.</p>
+  </header>
+
+  @if (made(); as m) {
+    <!-- 만든 직후: 링크 두 개를 나눠서 건넨다 -->
+    <section class="panel done" aria-labelledby="doneH">
+      <p class="label">만들었어</p>
+      <h2 id="doneH">{{ m.title }}</h2>
+      <p class="meta">{{ m.when }} · {{ m.place }}</p>
+
+      <div class="link">
+        <p class="label">친구들한테 보낼 링크</p>
+        <code>{{ friendUrl() }}</code>
+        <button type="button" class="btn go" (click)="shareFriend()">
+          {{ copied() === 'friend' ? '복사했어!' : '단톡방에 공유하기' }}
+        </button>
+      </div>
+
+      <div class="link admin">
+        <p class="label">주최자 링크 · 너만 갖고 있어</p>
+        <p class="hint">
+          경기 정보 수정, 명단 정리, 팀 공개를 할 수 있는 링크야. 이 기기는 이미 주최자라
+          필요 없고, 다른 폰이나 PC에서 들어갈 때 써. <b>단톡방에 올리면 안 돼.</b>
+        </p>
+        <button type="button" class="btn ghost" (click)="copyAdmin()">
+          {{ copied() === 'admin' ? '복사했어!' : '주최자 링크 복사' }}
+        </button>
+      </div>
+
+      <div class="row">
+        <a class="btn" [routerLink]="['/e', m.id]">모임 페이지로 가기</a>
+        <button type="button" class="quiet" (click)="reset()">하나 더 만들기</button>
+      </div>
+    </section>
+  } @else {
+    <form class="panel" (submit)="$event.preventDefault(); submit()" aria-labelledby="newH">
+      <h2 id="newH">모임 만들기</h2>
+      <div class="field">
+        <label class="label" for="title">제목</label>
+        <input id="title" maxlength="40" placeholder="예: 토요일 풋살" [value]="form().title"
+               (input)="set('title', $any($event.target).value)" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label class="label" for="date">날짜</label>
+          <input id="date" type="date" [min]="today" [value]="form().date"
+                 (input)="set('date', $any($event.target).value)" />
+        </div>
+        <div class="field">
+          <label class="label" for="time">시간</label>
+          <input id="time" type="time" [value]="form().time"
+                 (input)="set('time', $any($event.target).value)" />
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="place">장소</label>
+        <input id="place" maxlength="60" placeholder="예: 잠실 풋살장 2구장" [value]="form().place"
+               (input)="set('place', $any($event.target).value)" />
+      </div>
+      <div class="field">
+        <label class="label" for="min">최소 인원</label>
+        <input id="min" type="number" inputmode="numeric" min="1" max="50" [value]="form().minPeople"
+               (input)="set('minPeople', $any($event.target).valueAsNumber)" />
+      </div>
+      <p class="hint" [class.err]="error()" aria-live="polite">
+        {{ error() || '만들면 친구용 링크랑 주최자 링크를 줄게.' }}
+      </p>
+      <button type="submit" class="btn go" [disabled]="busy()">
+        {{ busy() ? '만드는 중…' : '모임 만들기' }}
+      </button>
+    </form>
+
+    @if (recent().length) {
+      <section class="panel recent" aria-labelledby="recentH">
+        <h2 id="recentH">최근 모임</h2>
+        <ul>
+          @for (r of recent(); track r.id) {
+            <li [class.past]="r.days < 0">
+              <a [routerLink]="['/e', r.id]">
+                <span class="t">{{ r.title }}@if (r.host) {<em>주최</em>}</span>
+                <span class="w">{{ r.when }}</span>
+              </a>
+              <button type="button" class="x" (click)="forget(r.id)" [attr.aria-label]="r.title + ' 목록에서 지우기'">×</button>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <p class="foot">
+      친구한테 링크를 받았으면 그 링크로 들어가면 돼.<br />
+      홈 화면에 추가하면 앱처럼 쓸 수 있어.
+    </p>
+  }
+</main>
