@@ -102,6 +102,15 @@
   &:active { transform: scale(0.97); }
 }
 
+/* 공유 버튼 아래 작은 글자 버튼 */
+.copy-link {
+  position: relative; z-index: 1;
+  display: block; margin: 8px auto 0; padding: 4px 10px;
+  border: 0; background: none; cursor: pointer;
+  color: color-mix(in srgb, var(--chalk) 85%, transparent);
+  font-size: 0.85rem; text-decoration: underline; text-underline-offset: 3px;
+}
+
 .share-note {
   position: relative; z-index: 1;
   margin: 8px 0 0; font-size: 0.85rem; text-align: center;
@@ -279,3 +288,21 @@
 
 @keyframes wobble { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
 @keyframes tear { 0% { opacity: 0; transform: translateY(0); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(15px); } }
+
+/* 주최자만 보이는 기록 지우기 */
+.log-tools {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;
+  padding: 0 18px 14px;
+  font-size: 0.82rem; color: var(--muted);
+
+  .quiet { font-size: 0.82rem; }
+}
+
+.clear-log {
+  padding: 5px 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: none;
+  font-size: 0.82rem; color: var(--muted);
+
+  &.armed { border-color: var(--out); background: var(--out); color: #fff; font-weight: 700; }
+  &:disabled { opacity: 0.5; cursor: default; }
+}

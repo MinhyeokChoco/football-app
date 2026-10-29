@@ -89,6 +89,8 @@ export class EventView {
   readonly busy = signal(false);
 
   readonly logOpen = signal(false);
+  // 기록 지우기는 두 번 눌러야 한다. 처음 누르면 "정말 지울까?"로 바뀐다
+  readonly confirmClearLog = signal(false);
 
   // 공유 버튼 아래 잠깐 뜨는 결과 문구
   readonly shareNote = signal('');
@@ -344,6 +346,19 @@ export class EventView {
     this.shareNote.set(ok ? '주최자 링크를 복사했어. 단톡방엔 올리지 마!' : '복사가 안 됐어.');
   }
 
+  async clearLog() {
+    if (!this.confirmClearLog()) return this.confirmClearLog.set(true);
+    this.confirmClearLog.set(false);
+    this.busy.set(true);
+    try {
+      await this.store.clearActivities(this.eventId);
+    } catch {
+      this.setHint('기록을 지우지 못했어.', true);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   // ── 팀 나누기 ────────────────────────────────────────
 
   // 주최자가 섞으면 모두에게 보이고, 다른 사람은 자기 화면에서만 섞어본다.
@@ -390,5 +405,11 @@ export class EventView {
       failed: '복사가 안 됐어. 주소창 링크를 직접 복사해줘.',
     };
     this.shareNote.set(result === 'copied' || result === 'failed' ? notes[result] : '');
+  }
+
+  // 주소창에 붙여넣거나 링크만 따로 보낼 때
+  async copyLink() {
+    const ok = (await copyText(eventUrl(this.eventId))) === 'copied';
+    this.shareNote.set(ok ? '링크를 복사했어!' : '복사가 안 됐어. 주소창 링크를 직접 복사해줘.');
   }
 }

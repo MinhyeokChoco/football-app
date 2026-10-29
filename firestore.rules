@@ -128,6 +128,9 @@ service cloud.firestore {
           && request.resource.data.by == uid()
           && request.resource.data.at == request.time
           && validActivity(eventId, request.resource.data);
+
+        // 주최자가 기록을 정리할 때. 고치는 건 여전히 아무도 못 한다
+        allow delete: if isHost(eventId);
       }
 
       function validActivity(eventId, a) {

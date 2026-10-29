@@ -307,6 +307,13 @@ describe('기록', () => {
     const ref = doc(collection(as(HOST), 'events', E, 'activities'), 'a1');
     await assertSucceeds(setDoc(ref, { kind: 'time', by: HOST, at: serverTimestamp() }));
     await assertFails(updateDoc(ref, { kind: 'teams' }));
-    await assertFails(deleteDoc(ref));
+  });
+
+  it('기록은 주최자만 지울 수 있다', async () => {
+    const ref = doc(collection(as(HOST), 'events', E, 'activities'), 'a1');
+    await assertSucceeds(setDoc(ref, { kind: 'time', by: HOST, at: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(as(AMY), 'events', E, 'activities', 'a1')));
+    await assertFails(deleteDoc(doc(anon(), 'events', E, 'activities', 'a1')));
+    await assertSucceeds(deleteDoc(ref));
   });
 });

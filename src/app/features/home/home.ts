@@ -43,7 +43,7 @@ export class Home {
   readonly made = signal<Made | null>(null);
 
   // 방금 복사한 칸. 버튼 글자를 "복사했어"로 잠깐 바꾼다.
-  readonly copied = signal<'friend' | 'admin' | null>(null);
+  readonly copied = signal<'friend' | 'link' | 'admin' | null>(null);
 
   // 이 기기에서 봤던 모임. 다가오는 경기가 위로
   private readonly recentAll = signal(recentEvents());
@@ -102,7 +102,11 @@ export class Home {
     if (m && (await copyText(hostUrl(m.id, m.key))) === 'copied') this.flash('admin');
   }
 
-  private flash(which: 'friend' | 'admin') {
+  async copyFriendLink() {
+    if ((await copyText(this.friendUrl())) === 'copied') this.flash('link');
+  }
+
+  private flash(which: 'friend' | 'link' | 'admin') {
     this.copied.set(which);
     setTimeout(() => this.copied.set(null), 1800);
   }

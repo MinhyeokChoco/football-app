@@ -33,6 +33,7 @@
         <i [style.width.%]="barPct()"></i>
       </div>
       <button type="button" class="share" (click)="share()">단톡방에 공유하기</button>
+      <button type="button" class="copy-link" (click)="copyLink()">링크만 복사</button>
       @if (shareNote()) {
         <p class="share-note" aria-live="polite">{{ shareNote() }}</p>
       }
@@ -147,6 +148,18 @@
               <li><span>{{ act.text }}</span><time>{{ act.ago }}</time></li>
             }
           </ul>
+          @if (isHost()) {
+            <div class="log-tools">
+              @if (confirmClearLog()) {
+                <span>기록을 전부 지울까? 되돌릴 수 없어.</span>
+                <button type="button" class="quiet" (click)="confirmClearLog.set(false)">취소</button>
+              }
+              <button type="button" class="clear-log" [class.armed]="confirmClearLog()"
+                      (click)="clearLog()" [disabled]="busy()">
+                {{ confirmClearLog() ? '지우기' : '기록 지우기' }}
+              </button>
+            </div>
+          }
         }
       </section>
     }

@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -208,6 +209,18 @@ export class EventStore {
     });
     if (teams) batch.set(activityRef(eventId), { kind: 'teams', by: uid, at: serverTimestamp() });
     await batch.commit();
+  }
+
+  /** 주최자가 기록을 전부 지운다. 화면에 안 보이는 오래된 기록까지 */
+  async clearActivities(eventId: string) {
+    await this.auth.user();
+    const snap = await getDocs(collection(db, 'events', eventId, 'activities'));
+    // batch 하나에 500개까지라 나눠서 지운다
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const batch = writeBatch(db);
+      snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
   }
 
   // ── 응답 ─────────────────────────────────────────────

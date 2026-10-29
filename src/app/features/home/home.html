@@ -17,6 +17,9 @@
         <button type="button" class="btn go" (click)="shareFriend()">
           {{ copied() === 'friend' ? '복사했어!' : '단톡방에 공유하기' }}
         </button>
+        <button type="button" class="quiet" (click)="copyFriendLink()">
+          {{ copied() === 'link' ? '링크를 복사했어!' : '링크만 복사' }}
+        </button>
       </div>
 
       <div class="link admin">
