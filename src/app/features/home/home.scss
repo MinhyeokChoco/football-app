@@ -67,6 +67,12 @@ header {
   .w { font-size: 0.82rem; color: var(--muted); }
 }
 
+.again {
+  flex-shrink: 0; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: none;
+  font-size: 0.8rem; font-weight: 700; color: var(--in);
+}
+
 .x {
   width: 32px; height: 32px; flex-shrink: 0;
   border: 0; background: none; cursor: pointer;

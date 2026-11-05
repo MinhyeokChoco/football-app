@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  updateDoc,
   writeBatch,
 } from 'firebase/firestore';
 import { Auth } from './auth';
@@ -40,6 +41,9 @@ function newKey() {
 
 const toDate = (t: unknown) => (t instanceof Timestamp ? t.toDate() : new Date());
 
+// 내가 방금 쓴 값은 서버 시각이 오기 전까지 null 이라 추정값으로 읽는다
+const estimate = { serverTimestamps: 'estimate' } as const;
+
 function toEvent(id: string, d: Record<string, any>): FootballEvent {
   return {
     id,
@@ -47,6 +51,10 @@ function toEvent(id: string, d: Record<string, any>): FootballEvent {
     place: d['place'],
     eventAt: toDate(d['eventAt']),
     minPeople: d['minPeople'],
+    maxPeople: d['maxPeople'] ?? null,
+    fee: d['fee'] ?? null,
+    account: d['account'] ?? null,
+    closed: d['closed'] ?? false,
     teams: d['teams'] ? { a: d['teams'].a, b: d['teams'].b, at: toDate(d['teams'].at) } : null,
   };
 }
@@ -109,7 +117,10 @@ export class EventStore {
               name: d.id,
               status: d.get('status'),
               uid: d.get('uid'),
-              createdAt: toDate(d.get('createdAt')),
+              guests: d.get('guests') ?? 0,
+              paid: d.get('paid') ?? false,
+              createdAt: toDate(d.get('createdAt', estimate)),
+              updatedAt: toDate(d.get('updatedAt', estimate)),
             })),
           ),
       ),
@@ -122,9 +133,10 @@ export class EventStore {
               kind: d.get('kind'),
               name: d.get('name'),
               status: d.get('status'),
+              guests: d.get('guests'),
+              closed: d.get('closed'),
               place: d.get('place'),
-              // 내가 방금 쓴 기록은 서버 시간이 오기 전까지 null 이다
-              at: toDate(d.get('at', { serverTimestamps: 'estimate' })),
+              at: toDate(d.get('at', estimate)),
             })),
           ),
       ),
@@ -145,6 +157,7 @@ export class EventStore {
     batch.set(ref, {
       ...input,
       eventAt: Timestamp.fromDate(input.eventAt),
+      closed: false,
       teams: null,
       createdBy: uid,
       createdAt: serverTimestamp(),
@@ -214,13 +227,39 @@ export class EventStore {
   /** 주최자가 기록을 전부 지운다. 화면에 안 보이는 오래된 기록까지 */
   async clearActivities(eventId: string) {
     await this.auth.user();
-    const snap = await getDocs(collection(db, 'events', eventId, 'activities'));
-    // batch 하나에 500개까지라 나눠서 지운다
-    for (let i = 0; i < snap.docs.length; i += 400) {
-      const batch = writeBatch(db);
-      snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
+    await deleteAll(collection(db, 'events', eventId, 'activities'));
+  }
+
+  /** 마감하면 주최자 말고는 명단을 못 바꾼다. 다시 열 수도 있다 */
+  async setClosed(eventId: string, closed: boolean) {
+    const { uid } = await this.auth.user();
+    const batch = writeBatch(db);
+    batch.update(eventRef(eventId), { closed });
+    batch.set(activityRef(eventId), { kind: 'close', closed, by: uid, at: serverTimestamp() });
+    await batch.commit();
+  }
+
+  /** 회비 냈는지 표시. 주최자만 된다 */
+  async setPaid(eventId: string, name: string, paid: boolean) {
+    await this.auth.user();
+    await updateDoc(attendeeRef(eventId, name), { paid });
+  }
+
+  /**
+   * 모임을 통째로 지운다. Firestore 는 하위 컬렉션을 같이 지워주지 않아서
+   * 명단·기록을 먼저 지우고, 주최자 문서는 권한 검사에 쓰이니 맨 마지막 batch 에 넣는다.
+   */
+  async deleteEvent(eventId: string) {
+    await this.auth.user();
+    await deleteAll(collection(db, 'events', eventId, 'attendees'));
+    await deleteAll(collection(db, 'events', eventId, 'activities'));
+
+    const hosts = await getDocs(collection(db, 'events', eventId, 'hosts'));
+    const batch = writeBatch(db);
+    batch.delete(adminRef(eventId));
+    batch.delete(eventRef(eventId));
+    hosts.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
   }
 
   // ── 응답 ─────────────────────────────────────────────
@@ -263,6 +302,15 @@ export class EventStore {
     }
   }
 
+  /** 같이 데려오는 친구 수. 대기 순서는 그대로 둔다 */
+  async setGuests(eventId: string, name: string, guests: number) {
+    const { uid } = await this.auth.user();
+    const batch = writeBatch(db);
+    batch.update(attendeeRef(eventId, name), { guests });
+    batch.set(activityRef(eventId), { kind: 'guests', name, guests, by: uid, at: serverTimestamp() });
+    await batch.commit();
+  }
+
   /** 내 응답 취소, 또는 주최자가 남의 응답을 지운다 */
   async remove(eventId: string, attendee: Attendee) {
     const { uid } = await this.auth.user();
@@ -274,6 +322,16 @@ export class EventStore {
       by: uid,
       at: serverTimestamp(),
     });
+    await batch.commit();
+  }
+}
+
+// batch 하나에 500개까지라 나눠서 지운다
+async function deleteAll(ref: ReturnType<typeof collection>) {
+  const snap = await getDocs(ref);
+  for (let i = 0; i < snap.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
     await batch.commit();
   }
 }

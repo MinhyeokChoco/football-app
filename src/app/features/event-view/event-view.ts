@@ -1,12 +1,22 @@
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Auth } from '../../core/auth';
+import { EventForm, formFrom, readForm, won } from '../../core/event-form';
 import { EventStore, NameTakenError, nameProblem } from '../../core/event-store';
 import { iga, euro } from '../../core/josa';
-import { lastName, rememberEvent, rememberName } from '../../core/local';
+import { Level, balancedSplit, headcount, lineup, playerNames } from '../../core/lineup';
+import {
+  forgetEvent,
+  lastName,
+  rememberEvent,
+  rememberName,
+  rememberSkill,
+  skills,
+} from '../../core/local';
 import { Activity, Attendee, RsvpStatus } from '../../core/models';
 import { copyText, eventUrl, hostUrl, shareOrCopy } from '../../core/share';
-import { ago, ddayLabel, fromSeoul, seoulDay, seoulTime, whenLabel } from '../../core/time';
+import { ago, ddayLabel, whenLabel } from '../../core/time';
+import { EventFields } from '../../shared/event-fields';
 
 // 불참을 누르면 뜨는 문구. 매번 같으면 그냥 넘기는 팝업이 된다.
 const NUDGES = [
@@ -18,15 +28,15 @@ const NUDGES = [
 const STATUS_LABEL: Record<RsvpStatus, string> = { YES: '참석', NO: '불참' };
 
 const DEFAULT_HINT = '이름 쓰고 버튼 하나 누르면 바로 명단에 올라가.';
+const CLOSED_HINT = '주최자가 마감했어. 못 가게 되면 주최자한테 말해줘.';
 
-// 경기 정보 수정 폼. 날짜·시간은 한국 시간으로 받는다.
-interface Draft {
-  title: string;
-  date: string;
-  time: string;
-  place: string;
-  minPeople: number;
-}
+const MAX_GUESTS = 5;
+
+export const LEVELS: { level: Level; label: string }[] = [
+  { level: 3, label: '상' },
+  { level: 2, label: '중' },
+  { level: 1, label: '하' },
+];
 
 function activityText(a: Activity): string {
   switch (a.kind) {
@@ -38,6 +48,10 @@ function activityText(a: Activity): string {
       return `${iga(a.name!)} 응답을 취소했어`;
     case 'remove':
       return `주최자가 ${a.name}의 응답을 지웠어`;
+    case 'guests':
+      return a.guests ? `${iga(a.name!)} 친구 ${a.guests}명 데려온대` : `${iga(a.name!)} 친구 안 데려온대`;
+    case 'close':
+      return a.closed ? '주최자가 모임을 마감했어' : '주최자가 모임을 다시 열었어';
     case 'place':
       return `장소가 ${euro(a.place!)} 바뀌었어`;
     case 'time':
@@ -47,20 +61,9 @@ function activityText(a: Activity): string {
   }
 }
 
-// 참석자를 섞어서 반으로 나눈다 (Fisher–Yates).
-function shuffleSplit(names: string[]) {
-  const arr = [...names];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  const half = Math.ceil(arr.length / 2);
-  return { a: arr.slice(0, half), b: arr.slice(half) };
-}
-
 @Component({
   selector: 'app-event-view',
-  imports: [RouterLink],
+  imports: [RouterLink, EventFields],
   templateUrl: './event-view.html',
   styleUrl: './event-view.scss',
 })
@@ -80,7 +83,7 @@ export class EventView {
 
   // 주최자면 경기 정보 수정, 남의 응답 삭제, 팀 공개가 보인다.
   readonly isHost = signal(false);
-  readonly draft = signal<Draft | null>(null);
+  readonly draft = signal<EventForm | null>(null);
   readonly draftError = signal('');
 
   readonly name = signal(lastName());
@@ -89,11 +92,18 @@ export class EventView {
   readonly busy = signal(false);
 
   readonly logOpen = signal(false);
-  // 기록 지우기는 두 번 눌러야 한다. 처음 누르면 "정말 지울까?"로 바뀐다
+  // 기록 지우기·모임 삭제는 두 번 눌러야 한다. 처음 누르면 "정말 지울까?"로 바뀐다
   readonly confirmClearLog = signal(false);
+  readonly confirmDelete = signal(false);
 
-  // 공유 버튼 아래 잠깐 뜨는 결과 문구
+  // 주최자가 실력을 매기는 목록. 이 기기에만 저장된다
+  readonly skillOpen = signal(false);
+  readonly skillMap = signal(skills());
+  readonly levels = LEVELS;
+
+  // 공유 버튼·계좌 복사 아래 잠깐 뜨는 결과 문구
   readonly shareNote = signal('');
+  readonly feeNote = signal('');
 
   // 불참 확인 다이얼로그
   readonly nudge = signal<{ title: string; sub: string } | null>(null);
@@ -104,21 +114,66 @@ export class EventView {
   // 주최자가 아닌 사람이 혼자 섞어보는 팀. 저장하지 않는다.
   readonly localTeams = signal<{ a: string[]; b: string[]; at: Date } | null>(null);
 
-  readonly going = computed(() => this.attendees().filter((a) => a.status === 'YES'));
+  // 참석을 누른 순서대로 정원까지 확정, 넘치면 대기
+  private readonly lineup = computed(() => lineup(this.attendees(), this.event()?.maxPeople ?? null));
+  readonly going = computed(() => this.lineup().confirmed);
+  readonly waiting = computed(() => this.lineup().waiting);
+  /** 친구까지 센 확정 인원 */
+  readonly count = computed(() => this.lineup().count);
   readonly notGoing = computed(() => this.attendees().filter((a) => a.status === 'NO'));
   readonly minPeople = computed(() => this.event()?.minPeople ?? 0);
-  readonly isFull = computed(() => this.going().length >= this.minPeople());
-  readonly shortBy = computed(() => Math.max(0, this.minPeople() - this.going().length));
+  readonly maxPeople = computed(() => this.event()?.maxPeople ?? null);
+  readonly isFull = computed(() => this.count() >= this.minPeople());
+  readonly shortBy = computed(() => Math.max(0, this.minPeople() - this.count()));
   readonly barPct = computed(() =>
-    Math.min(100, (this.going().length / Math.max(1, this.minPeople())) * 100),
+    Math.min(100, (this.count() / Math.max(1, this.maxPeople() ?? this.minPeople())) * 100),
   );
+  // 정원이 있으면 막대 위에 최소 인원 자리를 표시한다
+  readonly minMarkPct = computed(() => {
+    const max = this.maxPeople();
+    return max && max > this.minPeople() ? (this.minPeople() / max) * 100 : null;
+  });
+  readonly capText = computed(() => {
+    const max = this.maxPeople();
+    if (max == null) return '';
+    const waiting = headcount(this.waiting());
+    if (waiting) return `정원 ${max}명 꽉 참 · 대기 ${waiting}명`;
+    return this.count() >= max ? `정원 ${max}명 꽉 참` : `정원 ${max}명 · ${max - this.count()}자리 남음`;
+  });
+
+  readonly closed = computed(() => !!this.event()?.closed);
+  /** 마감되면 주최자 말고는 명단을 못 바꾼다 */
+  readonly locked = computed(() => this.closed() && !this.isHost());
 
   // 지금 입력칸에 쓴 이름의 응답. 내 것이면 버튼에 눌린 상태로 보여준다.
   readonly typed = computed(() => this.attendees().find((a) => a.name === this.name().trim()));
-  readonly myStatus = computed(() => {
+  readonly mine = computed(() => {
     const t = this.typed();
-    return t && t.uid === this.auth.uid() ? t.status : null;
+    return t && t.uid === this.auth.uid() ? t : null;
   });
+  readonly myStatus = computed(() => this.mine()?.status ?? null);
+  /** 내가 대기 몇 번인지. 대기가 아니면 0 */
+  readonly myWait = computed(() => {
+    const me = this.mine();
+    return me ? this.waiting().indexOf(me) + 1 : 0;
+  });
+  readonly maxGuests = MAX_GUESTS;
+
+  // ── 회비 ──
+  readonly fee = computed(() => this.event()?.fee ?? null);
+  // 참석 확정인 사람, 그리고 이미 냈는데 빠진 사람(돌려줘야 하니까)
+  readonly feeRows = computed(() => {
+    const fee = this.fee() ?? 0;
+    const rows = [...this.going(), ...this.attendees().filter((a) => a.paid && !this.going().includes(a))];
+    return rows.map((a) => ({ a, amount: fee * (1 + a.guests), out: !this.going().includes(a) }));
+  });
+  readonly feeSummary = computed(() => {
+    const rows = this.feeRows().filter((r) => !r.out);
+    const paid = rows.filter((r) => r.a.paid);
+    const sum = (list: typeof rows) => list.reduce((n, r) => n + r.amount, 0);
+    return `${paid.length}/${rows.length}명 냄 · ${won(sum(paid))} / ${won(sum(rows))}`;
+  });
+  readonly won = won;
 
   readonly whenText = computed(() => {
     const e = this.event();
@@ -150,7 +205,7 @@ export class EventView {
   readonly teamsStale = computed(() => {
     const t = this.teams();
     if (!t) return false;
-    const now = this.going().map((a) => a.name).sort().join('\n');
+    const now = playerNames(this.going()).sort().join('\n');
     return now !== [...t.a, ...t.b].sort().join('\n');
   });
 
@@ -176,13 +231,29 @@ export class EventView {
     });
 
     // 홈의 "최근 모임"에 남긴다
+    // 홈의 "최근 모임"에 남긴다. 다시 만들기에 쓰도록 장소·인원·회비도 같이
     effect(() => {
       const e = this.event();
-      if (e) rememberEvent({ id: e.id, title: e.title, eventAt: e.eventAt.getTime(), host: this.isHost() });
+      if (!e) return;
+      const { id, title, place, minPeople, maxPeople, fee, account } = e;
+      rememberEvent({
+        id, title, place, minPeople, maxPeople, fee, account,
+        eventAt: e.eventAt.getTime(),
+        host: this.isHost(),
+      });
+    });
+
+    // 마감되면 입력칸 안내도 바꿔준다
+    effect(() => {
+      const locked = this.locked();
+      untracked(() => {
+        if (locked) this.setHint(CLOSED_HINT);
+        else if (this.hint() === CLOSED_HINT) this.setHint(DEFAULT_HINT);
+      });
     });
 
     effect(() => {
-      const target = this.going().length;
+      const target = this.count();
       untracked(() => this.rollTo(target));
     });
   }
@@ -239,6 +310,7 @@ export class EventView {
 
   // 참석은 바로, 불참은 한 번 더 물어본다.
   press(status: RsvpStatus) {
+    if (this.locked()) return this.setHint(CLOSED_HINT, true);
     const problem = nameProblem(this.name().trim());
     if (problem) return this.setHint(problem, true);
 
@@ -247,6 +319,21 @@ export class EventView {
       return;
     }
     this.submit(status);
+  }
+
+  async changeGuests(delta: number) {
+    const me = this.mine();
+    if (!me || this.locked()) return;
+    const guests = Math.min(MAX_GUESTS, Math.max(0, me.guests + delta));
+    if (guests === me.guests) return;
+    this.busy.set(true);
+    try {
+      await this.store.setGuests(this.eventId, me.name, guests);
+    } catch {
+      this.setHint('저장이 안 됐어. 잠시 후 다시 눌러줘.', true);
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   // 다이얼로그의 강조 버튼. 허들의 유일한 목적이 이 전환이다.
@@ -282,7 +369,7 @@ export class EventView {
   }
 
   canRemove(a: Attendee) {
-    return this.isMine(a) || this.isHost();
+    return this.isHost() || (this.isMine(a) && !this.closed());
   }
 
   async remove(a: Attendee) {
@@ -303,17 +390,12 @@ export class EventView {
     const e = this.event();
     if (!e) return;
     this.draftError.set('');
-    this.draft.set({
-      title: e.title,
-      date: seoulDay(e.eventAt),
-      time: seoulTime(e.eventAt),
-      place: e.place,
-      minPeople: e.minPeople,
-    });
+    this.draft.set(formFrom(e));
   }
 
-  setDraft<K extends keyof Draft>(key: K, value: Draft[K]) {
-    this.draft.update((d) => (d ? { ...d, [key]: value } : d));
+  setDraft(next: EventForm) {
+    this.draft.set(next);
+    if (this.draftError()) this.draftError.set('');
   }
 
   async saveEdit() {
@@ -321,16 +403,12 @@ export class EventView {
     const e = this.event();
     if (!d || !e) return;
 
-    const title = d.title.trim();
-    const place = d.place.trim();
-    const minPeople = Math.round(Number(d.minPeople));
-    if (!title || !place) return this.draftError.set('제목이랑 장소는 비우면 안 돼');
-    if (!d.date || !d.time) return this.draftError.set('날짜랑 시간을 골라줘');
-    if (!(minPeople >= 1 && minPeople <= 50)) return this.draftError.set('인원은 1~50명 사이로');
+    const read = readForm(d);
+    if ('error' in read) return this.draftError.set(read.error);
 
     this.busy.set(true);
     try {
-      await this.store.update(e, { title, place, eventAt: fromSeoul(d.date, d.time), minPeople });
+      await this.store.update(e, read.input);
       this.draft.set(null);
     } catch {
       this.draftError.set('저장이 안 됐어. 잠시 후 다시 눌러줘.');
@@ -359,11 +437,64 @@ export class EventView {
     }
   }
 
+  async toggleClosed() {
+    this.busy.set(true);
+    try {
+      await this.store.setClosed(this.eventId, !this.closed());
+    } catch {
+      this.setHint('바꾸지 못했어. 잠시 후 다시 눌러줘.', true);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async deleteEvent() {
+    if (!this.confirmDelete()) return this.confirmDelete.set(true);
+    this.busy.set(true);
+    try {
+      await this.store.deleteEvent(this.eventId);
+      forgetEvent(this.eventId);
+      this.router.navigate(['/'], { replaceUrl: true });
+    } catch {
+      this.confirmDelete.set(false);
+      this.setHint('모임을 지우지 못했어. 잠시 후 다시 눌러줘.', true);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // ── 회비 (표시는 주최자만) ──────────────────────────────
+
+  async togglePaid(a: Attendee) {
+    if (!this.isHost()) return;
+    try {
+      await this.store.setPaid(this.eventId, a.name, !a.paid);
+    } catch {
+      this.setHint('회비 표시를 저장하지 못했어.', true);
+    }
+  }
+
+  async copyAccount() {
+    const account = this.event()?.account;
+    const ok = account && (await copyText(account)) === 'copied';
+    this.feeNote.set(ok ? '계좌를 복사했어!' : '복사가 안 됐어.');
+  }
+
   // ── 팀 나누기 ────────────────────────────────────────
 
-  // 주최자가 섞으면 모두에게 보이고, 다른 사람은 자기 화면에서만 섞어본다.
+  levelOf = (name: string): Level => this.skillMap()[name] ?? 2;
+
+  setSkill(name: string, level: Level) {
+    // 같은 걸 다시 누르면 매긴 걸 지운다
+    const next = this.skillMap()[name] === level ? null : level;
+    rememberSkill(name, next);
+    this.skillMap.set(skills());
+  }
+
+  // 주최자가 섞으면 실력을 고려해서 모두에게 보이고, 다른 사람은 자기 화면에서만 무작위로 섞어본다.
   async splitTeams() {
-    const split = shuffleSplit(this.going().map((a) => a.name));
+    const names = playerNames(this.going());
+    const split = this.isHost() ? balancedSplit(names, this.levelOf) : balancedSplit(names, () => 2);
     if (!this.isHost()) {
       this.localTeams.set({ ...split, at: new Date() });
       return;
@@ -393,9 +524,14 @@ export class EventView {
   async share() {
     const e = this.event();
     if (!e) return;
-    const status = this.isFull()
-      ? `지금 ${this.going().length}명, 인원 충족!`
-      : `지금 ${this.going().length}/${e.minPeople}명, ${this.shortBy()}명 더 필요해`;
+    const max = this.maxPeople();
+    const status = this.closed()
+      ? `${this.count()}명으로 마감!`
+      : max != null && this.count() >= max
+        ? `정원 ${max}명 꽉 참, 대기 신청 받는 중`
+        : this.isFull()
+          ? `지금 ${this.count()}명, 인원 충족!`
+          : `지금 ${this.count()}/${e.minPeople}명, ${this.shortBy()}명 더 필요해`;
     const result = await shareOrCopy({
       text: `⚽ ${e.title}\n${this.whenText()} · ${e.place}\n${status}`,
       url: eventUrl(e.id),

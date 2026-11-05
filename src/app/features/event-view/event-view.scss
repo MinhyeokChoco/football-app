@@ -34,7 +34,11 @@
   font-size: 0.75rem; font-weight: 700;
 }
 
-.host-link { align-self: center; font-size: 0.82rem; }
+/* 경기 카드 위 "마감" */
+.closed-tag {
+  margin-left: 8px; padding: 1px 8px; border-radius: 4px;
+  background: var(--chalk); color: var(--pitch); letter-spacing: 0;
+}
 
 /* 경기 카드 — 이 화면에서 가장 과감한 한 곳 */
 .board {
@@ -89,6 +93,18 @@
     background: var(--accent);
     transition: width 0.3s;
   }
+
+  /* 정원이 있을 때 최소 인원 자리 */
+  .min-mark {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: var(--chalk);
+  }
+}
+
+.cap {
+  position: relative; z-index: 1;
+  margin: 6px 0 0; font-size: 0.82rem;
+  color: color-mix(in srgb, var(--chalk) 80%, transparent);
 }
 
 /* 인원이 모자랄수록 자주 누르게 될 버튼. 잔디 위라 분필색으로 */
@@ -150,6 +166,30 @@
   }
 }
 
+/* 대기 안내와 친구 데려가기 */
+.wait-note {
+  margin: 0; padding: 8px 12px; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  font-size: 0.85rem;
+}
+
+.guests {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 0.9rem; font-weight: 600;
+}
+
+.stepper {
+  display: flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+
+  button {
+    width: 40px; height: 36px; border: 0; cursor: pointer;
+    background: var(--bg); font-size: 1.1rem;
+    &:disabled { opacity: 0.4; cursor: default; }
+  }
+  output { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+}
+
 /* 명단 */
 .group {
   h3 {
@@ -165,7 +205,16 @@
 .dot {
   width: 9px; height: 9px; border-radius: 50%; display: inline-block;
   &.in { background: var(--in); }
+  &.wait { background: var(--accent); }
   &.out { background: var(--out); }
+}
+
+.nth {
+  margin-right: 6px; font-family: var(--mono); font-size: 0.75rem; color: var(--muted);
+}
+
+.plus {
+  margin-left: 4px; font-size: 0.78rem; font-weight: 700; color: var(--in);
 }
 
 .chip {
@@ -305,4 +354,75 @@
 
   &.armed { border-color: var(--out); background: var(--out); color: #fff; font-weight: 700; }
   &:disabled { opacity: 0.5; cursor: default; }
+}
+
+/* 회비 */
+.account {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 8px 8px 12px; border-radius: 10px; background: var(--bg);
+  span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.85rem; }
+  .btn { flex-shrink: 0; padding: 7px 12px; font-size: 0.85rem; }
+}
+
+.paid-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+
+.paid {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: none; text-align: left; cursor: pointer;
+  &:disabled { cursor: default; opacity: 1; }
+
+  .check {
+    width: 22px; height: 22px; flex-shrink: 0; border-radius: 6px;
+    border: 1.5px solid var(--line);
+    display: grid; place-items: center; font-weight: 700; color: #fff;
+  }
+  .who { flex: 1; min-width: 0; font-weight: 600; small { color: var(--in); } }
+  .amt { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+
+  &.on {
+    border-color: color-mix(in srgb, var(--in) 40%, var(--line));
+    .check { background: var(--in); border-color: var(--in); }
+  }
+}
+
+/* 주최자 실력 매기기 */
+.skill-toggle { align-self: flex-start; padding: 0; font-size: 0.85rem; text-decoration: underline; text-underline-offset: 3px; }
+
+.skills {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: 10px; background: var(--bg);
+
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+}
+
+.seg {
+  display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  button {
+    width: 38px; height: 30px; border: 0; cursor: pointer;
+    background: var(--surface); font-size: 0.85rem;
+    & + button { border-left: 1px solid var(--line); }
+    &[aria-pressed='true'] { background: var(--fg); color: var(--bg); font-weight: 700; }
+  }
+}
+
+/* 주최자 메뉴 */
+.host-tools {
+  .tool {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    .hint { margin-top: 2px; }
+    .btn { flex-shrink: 0; }
+  }
+  > .quiet { font-size: 0.82rem; }
+}
+
+.danger {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap;
+  padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 0.82rem; color: var(--muted);
+  .quiet { font-size: 0.82rem; }
 }

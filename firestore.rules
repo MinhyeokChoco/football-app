@@ -3,7 +3,7 @@ rules_version = '2';
 // 서버가 없으니 예전 NestJS 가 하던 검사를 전부 여기서 한다.
 // 사용자는 모두 익명 로그인이고, uid 가 예전 attendee token / admin token 역할을 한다.
 //
-// events/{eventId}                    모임. 누구나 읽기, 주최자만 수정
+// events/{eventId}                    모임. 누구나 읽기, 주최자만 수정·마감·삭제
 //   hosts/{uid}                       주최자 명단. 주최자 키를 아는 사람만 자기 uid 로 추가
 //   private/admin                     주최자 키. 주최자만 읽기
 //   attendees/{name}                  응답. 문서 id 가 이름이라 같은 이름은 하나뿐
@@ -45,12 +45,25 @@ service cloud.firestore {
             && validNames(t.a) && validNames(t.b) && t.at == request.time);
     }
 
-    // 팀은 바뀔 때만 검사한다. 이미 저장된 팀의 at 은 과거 시각이라 매번 검사하면 수정이 막힌다
+    // 정원·회비·계좌·마감은 나중에 생긴 필드라 예전 모임에는 없다. 없으면 null/false 로 본다
     function validEvent(d) {
       return validText(d.title, 40)
         && validText(d.place, 60)
         && d.eventAt is timestamp
-        && d.minPeople is int && d.minPeople >= 1 && d.minPeople <= 50;
+        && d.minPeople is int && d.minPeople >= 1 && d.minPeople <= 50
+        && (d.get('maxPeople', null) == null
+            || (d.maxPeople is int && d.maxPeople >= d.minPeople && d.maxPeople <= 50))
+        && (d.get('fee', null) == null || (d.fee is int && d.fee >= 1 && d.fee <= 1000000))
+        && (d.get('account', null) == null || validText(d.account, 60))
+        && d.get('closed', false) is bool;
+    }
+
+    function isClosed(eventId) {
+      return get(eventPath(eventId)).data.get('closed', false) == true;
+    }
+
+    function validGuests(d) {
+      return d.get('guests', 0) is int && d.get('guests', 0) >= 0 && d.get('guests', 0) <= 5;
     }
 
     match /events/{eventId} {
@@ -59,19 +72,27 @@ service cloud.firestore {
       // 주최자 키와 주최자 명단을 같은 batch 로 함께 만들어야 한다
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(
-             ['title', 'place', 'eventAt', 'minPeople', 'teams', 'createdBy', 'createdAt'])
+             ['title', 'place', 'eventAt', 'minPeople', 'maxPeople', 'fee', 'account', 'closed',
+              'teams', 'createdBy', 'createdAt'])
         && validEvent(request.resource.data)
+        && request.resource.data.get('closed', false) == false
         && request.resource.data.teams == null
         && request.resource.data.createdBy == uid()
         && request.resource.data.createdAt == request.time
         && existsAfter(/databases/$(database)/documents/events/$(eventId)/hosts/$(uid()));
 
+      // 팀은 바뀔 때만 검사한다. 이미 저장된 팀의 at 은 과거 시각이라 매번 검사하면 수정이 막힌다
       allow update: if isHost(eventId)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['title', 'place', 'eventAt', 'minPeople', 'teams'])
+             .hasOnly(['title', 'place', 'eventAt', 'minPeople', 'maxPeople', 'fee', 'account',
+                       'closed', 'teams'])
         && validEvent(request.resource.data)
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['teams'])
             || validTeams(request.resource.data.teams));
+
+      // 앱은 명단·기록을 먼저 지우고, 마지막 batch 에서 모임·주최자 키·주최자 명단을 함께 지운다.
+      // 같은 batch 안의 isHost 는 지우기 전 상태로 검사되니 주최자 문서를 같이 지워도 된다
+      allow delete: if isHost(eventId);
 
       match /private/admin {
         allow read: if isHost(eventId);
@@ -82,11 +103,14 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['key'])
           && request.resource.data.key is string
           && request.resource.data.key.size() >= 20;
+        allow delete: if isHost(eventId);
       }
 
       match /hosts/{hostUid} {
         // 내가 주최자인지 확인하는 용도. 남의 기록은 볼 필요가 없다
         allow get: if signedIn() && hostUid == uid();
+        // 모임을 지울 때 다른 기기의 주최자 문서까지 찾아서 지운다
+        allow list, delete: if isHost(eventId);
         // 주최자 링크(?key=)를 받은 다른 기기도 여기서 주최자가 된다
         allow create: if signedIn()
           && hostUid == uid()
@@ -100,23 +124,38 @@ service cloud.firestore {
 
         // 같은 이름이 이미 있으면 create 가 아니라 update 가 되고, update 는 본인만 된다.
         // 예전 "토큰이 있어야 이름을 바꿀 수 있다" 규칙이 이걸로 대신된다.
+        // 마감된 모임은 주최자만 명단을 고칠 수 있다.
         allow create: if signedIn()
           && exists(eventPath(eventId))
-          && request.resource.data.keys().hasOnly(['name', 'status', 'uid', 'createdAt', 'updatedAt'])
+          && (!isClosed(eventId) || isHost(eventId))
+          && request.resource.data.keys().hasOnly(['name', 'status', 'uid', 'guests', 'createdAt', 'updatedAt'])
           && request.resource.data.name == name
           && validText(name, 12)
           && request.resource.data.status in ['YES', 'NO']
+          && validGuests(request.resource.data)
           && request.resource.data.uid == uid()
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time;
 
+        // updatedAt 은 정원이 찼을 때 대기 순서가 된다. 참석/불참을 바꿀 때만 새로 찍고,
+        // 데려가는 친구 수만 바꿀 때는 그대로 둬서 줄을 잃지 않게 한다
         allow update: if signedIn()
           && resource.data.uid == uid()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && (!isClosed(eventId) || isHost(eventId))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'guests', 'updatedAt'])
           && request.resource.data.status in ['YES', 'NO']
-          && request.resource.data.updatedAt == request.time;
+          && validGuests(request.resource.data)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+              ? request.resource.data.updatedAt == request.time
+              : !request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt']));
 
-        allow delete: if signedIn() && (resource.data.uid == uid() || isHost(eventId));
+        // 회비 냈는지는 주최자만 표시한다
+        allow update: if isHost(eventId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paid'])
+          && request.resource.data.paid is bool;
+
+        allow delete: if signedIn()
+          && ((resource.data.uid == uid() && !isClosed(eventId)) || isHost(eventId));
       }
 
       // 기록은 같은 batch 에서 일어난 실제 변경과 맞을 때만 쓸 수 있다.
@@ -161,6 +200,19 @@ service cloud.firestore {
             && isHost(eventId)
             && getAfter(eventPath(eventId)).data.place == a.place
             && get(eventPath(eventId)).data.place != a.place
+          ) || (
+            a.kind == 'guests'
+            && a.keys().hasOnly(['kind', 'name', 'guests', 'by', 'at'])
+            && a.name is string
+            && getAfter(attendeePath(eventId, a.name)).data.uid == uid()
+            && getAfter(attendeePath(eventId, a.name)).data.get('guests', 0) == a.guests
+            && get(attendeePath(eventId, a.name)).data.get('guests', 0) != a.guests
+          ) || (
+            a.kind == 'close'
+            && a.keys().hasOnly(['kind', 'closed', 'by', 'at'])
+            && isHost(eventId)
+            && getAfter(eventPath(eventId)).data.closed == a.closed
+            && get(eventPath(eventId)).data.get('closed', false) != a.closed
           ) || (
             a.kind in ['time', 'teams']
             && a.keys().hasOnly(['kind', 'by', 'at'])
